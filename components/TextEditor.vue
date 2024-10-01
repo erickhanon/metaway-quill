@@ -6,76 +6,75 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-import { useNuxtApp } from '#app';
-import 'quill/dist/quill.snow.css';
-import 'quill-mention/dist/quill.mention.css';
+import "quill/dist/quill.snow.css";
+import "quill-mention/dist/quill.mention.css";
 
 const editor = ref(null);
 let quill;
 
 const loadTemplate = () => {
-  const templateContent = [
-    { insert: 'Este é um documento oficial. ' },
-    { insert: 'Por favor, preencha as informações abaixo:\n\n' },
-    { insert: 'Nome: ', attributes: { bold: true } },
-    { insert: '_________________________\n' },
-    { insert: 'Data: ', attributes: { bold: true } },
-    { insert: '_________________________\n\n' },
-    { insert: 'Atenciosamente,\n' },
-    { insert: 'Direção da Escola', attributes: { nonEditable: true, bold: true } },
-  ];
-
+  // Limpar o conteúdo atual do editor
   quill.setContents([]);
-
-  quill.setContents(templateContent);
+  quill.insertEmbed(
+    quill.getLength(),
+    "nonEditable",
+    "Este é um documento oficial. Por favor, preencha as informações abaixo:\n\n"
+  );
+  quill.insertEmbed(quill.getLength(), "nonEditable", "Nome: ");
+  quill.insertText(quill.getLength(), "_________________________\n\n");
+  quill.insertEmbed(quill.getLength(), "nonEditable", "Data: ");
+  quill.insertText(quill.getLength(), "_________________________\n\n");
+  quill.insertEmbed(quill.getLength(), "nonEditable", "Atenciosamente,\n");
+  quill.insertEmbed(quill.getLength(), "nonEditable", "Direção da Escola");
+  quill.setSelection(quill.getLength() - 1);
 };
 
 onMounted(async () => {
   const { $Quill } = useNuxtApp();
-  const Inline = $Quill.import('blots/inline');
 
-  class NonEditableBlot extends Inline {
+  // Importar módulos do Quill que dependem do DOM
+  const BlockEmbed = $Quill.import("blots/block/embed");
+
+  class NonEditableBlot extends BlockEmbed {
     static create(value) {
       let node = super.create();
-      node.setAttribute('contenteditable', 'false');
-      node.setAttribute('data-non-editable', 'true');
-      node.classList.add('non-editable');
+      node.setAttribute("contenteditable", "false");
+      node.setAttribute("data-non-editable", "true");
+      node.classList.add("non-editable");
       node.innerHTML = value;
       return node;
     }
 
-    static formats(node) {
+    static value(node) {
       return node.innerHTML;
     }
   }
 
-  NonEditableBlot.blotName = 'nonEditable';
-  NonEditableBlot.tagName = 'span';
-  NonEditableBlot.className = 'non-editable';
+  NonEditableBlot.blotName = "nonEditable";
+  NonEditableBlot.tagName = "div";
+  NonEditableBlot.className = "non-editable";
 
-  $Quill.register({
-    'formats/nonEditable': NonEditableBlot,
-  });
+  // Registrar o Blot personalizado
+  $Quill.register(NonEditableBlot);
 
   quill = new $Quill(editor.value, {
-    theme: 'snow',
+    theme: "snow",
     modules: {
       toolbar: {
         container: [
-          ['bold', 'italic', 'underline', 'strike'],
+          ["bold", "italic", "underline", "strike"],
           [{ header: 1 }, { header: 2 }],
-          [{ list: 'ordered' }, { list: 'bullet' }],
-          [{ indent: '-1' }, { indent: '+1' }],
+          [{ list: "ordered" }, { list: "bullet" }],
+          [{ indent: "-1" }, { indent: "+1" }],
           [{ align: [] }],
-          ['image'],
-          ['clean'],
+          ["image"],
+          ["clean"],
         ],
         handlers: {
           image: function () {
-            const input = document.createElement('input');
-            input.setAttribute('type', 'file');
-            input.setAttribute('accept', 'image/*');
+            const input = document.createElement("input");
+            input.setAttribute("type", "file");
+            input.setAttribute("accept", "image/*");
             input.click();
 
             input.onchange = () => {
@@ -85,7 +84,7 @@ onMounted(async () => {
                 reader.onload = (e) => {
                   const base64Image = e.target.result;
                   const range = quill.getSelection();
-                  quill.insertEmbed(range.index, 'image', base64Image, 'user');
+                  quill.insertEmbed(range.index, "image", base64Image, "user");
                 };
                 reader.readAsDataURL(file);
               }
@@ -95,22 +94,29 @@ onMounted(async () => {
       },
       mention: {
         allowedChars: /^[A-Za-z\s]*$/,
-        mentionDenotationChars: ['@'],
+        mentionDenotationChars: ["@"],
         source: mentionSource,
       },
     },
   });
 
-  // Prevenir edição das partes não editáveis
-  quill.root.addEventListener('keydown', function (event) {
-    const selection = quill.getSelection();
-    if (!selection) return;
-
-    const [blot] = quill.scroll.descendant(NonEditableBlot, selection.index);
-
-    if (blot) {
-      event.preventDefault();
+  // Prevenir deleção do Blot não editável
+  quill.keyboard.addBinding({ key: "Backspace" }, function (range, context) {
+    if (range.index > 0) {
+      const [blot] = quill.getLeaf(range.index - 1);
+      if (blot instanceof NonEditableBlot) {
+        return false;
+      }
     }
+    return true;
+  });
+
+  quill.keyboard.addBinding({ key: "Delete" }, function (range, context) {
+    const [blot] = quill.getLeaf(range.index);
+    if (blot instanceof NonEditableBlot) {
+      return false;
+    }
+    return true;
   });
 });
 
@@ -118,15 +124,15 @@ function mentionSource(searchTerm, renderList, mentionChar) {
   let values;
 
   const students = [
-    { id: 1, value: 'Aluno1' },
-    { id: 2, value: 'Aluno2' },
-    { id: 3, value: 'Aluno3' },
+    { id: 1, value: "Aluno1" },
+    { id: 2, value: "Aluno2" },
+    { id: 3, value: "Aluno3" },
   ];
 
   const classes = [
-    { id: 1, value: 'Aula1' },
-    { id: 2, value: 'Aula2' },
-    { id: 3, value: 'Aula3' },
+    { id: 1, value: "Aula1" },
+    { id: 2, value: "Aula2" },
+    { id: 3, value: "Aula3" },
   ];
 
   // Combinar listas de alunos e aulas
@@ -142,10 +148,3 @@ function mentionSource(searchTerm, renderList, mentionChar) {
   }
 }
 </script>
-
-<style scoped>
-.non-editable {
-  background-color: #f0f0f0;
-  color: #333;
-}
-</style>
