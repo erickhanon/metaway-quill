@@ -10,6 +10,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "html2pdf.js": "^0.9.0",
     "nuxt": "^3.13.0",
     "nuxt-app": "file:",
     "quill": "^2.0.2",
