@@ -3,9 +3,14 @@
     <button @click="loadTemplate">Carregar Modelo</button>
     <button @click="showSignaturePad = true">Assinar Documento</button>
     <button @click="exportToPDF">Baixar PDF</button>
-    <button @click="quill.setContents([])">Limpar Editor</button>
-    <!-- clear editor -->
+    <button @click="clearSavedContent">Limpar Conteúdo</button>
     <div ref="editor"></div>
+    <div class="last-saved-message">
+      <p v-if="lastSavedTime">
+        Último salvamento automático em: {{ formattedLastSavedTime }}
+      </p>
+      <p v-else>O documento ainda não foi salvo.</p>
+    </div>
   </div>
   <div v-if="showSignaturePad" class="signature-modal">
     <div class="signature-container">
@@ -23,20 +28,20 @@
 import "quill/dist/quill.snow.css";
 import "quill-mention/dist/quill.mention.css";
 import html2pdf from "html2pdf.js";
-import SignaturePad from 'signature_pad';
+import SignaturePad from "signature_pad";
+import { debounce } from "lodash";
 
 const editor = ref(null);
 const showSignaturePad = ref(false);
 const signaturePadCanvas = ref(null);
+const lastSavedTime = ref(null);
 let quill;
 let signaturePad;
 let signatureImage = null;
 
 // Função para carregar o modelo
 const loadTemplate = () => {
-  // Limpar o conteúdo atual do editor
   quill.setContents([]);
-
   quill.insertEmbed(
     quill.getLength(),
     "nonEditable",
@@ -51,6 +56,7 @@ const loadTemplate = () => {
   quill.setSelection(quill.getLength() - 1);
 };
 
+// Função para criar as menções
 function mentionSource(searchTerm, renderList, mentionChar) {
   let values;
 
@@ -111,6 +117,42 @@ const exportToPDF = () => {
   html2pdf().set(opt).from(contentClone).save();
 };
 
+// Função para salvar o conteúdo
+const saveContent = () => {
+  const content = quill.getContents();
+  localStorage.setItem("editorContent", JSON.stringify(content));
+
+  // Atualizar o horário do último salvamento
+  lastSavedTime.value = new Date();
+  localStorage.setItem("lastSavedTime", lastSavedTime.value.toISOString());
+};
+
+const saveContentDebounced = debounce(saveContent, 1000);
+
+// Função para limpar o conteúdo salvo
+const clearSavedContent = () => {
+  localStorage.removeItem("editorContent");
+  localStorage.removeItem("lastSavedTime");
+  quill.setContents([]);
+  lastSavedTime.value = null;
+};
+
+// Computed para formatar o horário do último salvamento
+const formattedLastSavedTime = computed(() => {
+  if (!lastSavedTime.value) {
+    return "";
+  }
+  const options = {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  };
+  return lastSavedTime.value.toLocaleDateString("pt-BR", options);
+});
+
 // Funções relacionadas ao SignaturePad
 const initializeSignaturePad = async () => {
   await nextTick(); // Garante que o DOM foi atualizado
@@ -122,13 +164,13 @@ const initializeSignaturePad = async () => {
 
     signaturePad = new SignaturePad(canvas);
   } else {
-    console.error('Canvas do SignaturePad não está disponível.');
+    console.error("Canvas do SignaturePad não está disponível.");
   }
 };
 
 const saveSignature = () => {
   if (signaturePad.isEmpty()) {
-    alert('Por favor, forneça uma assinatura primeiro.');
+    alert("Por favor, forneça uma assinatura primeiro.");
     return;
   }
   signatureImage = signaturePad.toDataURL();
@@ -137,8 +179,8 @@ const saveSignature = () => {
   if (signatureImage) {
     // Inserir a assinatura no editor
     const range = quill.getSelection(true);
-    quill.insertEmbed(range.index, 'image', signatureImage, 'user');
-    quill.insertText(range.index + 1, '\n', 'user');
+    quill.insertEmbed(range.index, "image", signatureImage, "user");
+    quill.insertText(range.index + 1, "\n", "user");
   }
 };
 
@@ -247,7 +289,6 @@ onMounted(async () => {
     }
     return true;
   });
-
   quill.keyboard.addBinding({ key: "Delete" }, function (range, context) {
     const [blot] = quill.getLeaf(range.index);
     if (blot instanceof NonEditableBlot) {
@@ -255,7 +296,30 @@ onMounted(async () => {
     }
     return true;
   });
+
+  // Restaurar o conteúdo salvo, se existir
+  const savedContent = localStorage.getItem("editorContent");
+  if (savedContent) {
+    quill.setContents(JSON.parse(savedContent));
+  } else {
+    // Opcionalmente, carregar o modelo padrão
+    loadTemplate();
+  }
+
+  // Escutar mudanças no editor para salvar o conteúdo
+  quill.on("text-change", () => {
+    saveContentDebounced();
+  });
+
+  // Restaurar o horário do último salvamento
+  const savedLastSavedTime = localStorage.getItem("lastSavedTime");
+  if (savedLastSavedTime) {
+    lastSavedTime.value = new Date(savedLastSavedTime);
+  } else {
+    lastSavedTime.value = null;
+  }
 });
+
 </script>
 
 <style>
