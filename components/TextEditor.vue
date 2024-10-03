@@ -1,20 +1,38 @@
 <template>
   <div>
     <button @click="loadTemplate">Carregar Modelo</button>
+    <button @click="showSignaturePad = true">Assinar Documento</button>
     <button @click="exportToPDF">Baixar PDF</button>
+    <button @click="quill.setContents([])">Limpar Editor</button>
+    <!-- clear editor -->
     <div ref="editor"></div>
   </div>
+  <div v-if="showSignaturePad" class="signature-modal">
+    <div class="signature-container">
+      <canvas ref="signaturePadCanvas"></canvas>
+      <div class="signature-buttons">
+        <button @click="saveSignature">Salvar Assinatura</button>
+        <button @click="clearSignature">Limpar</button>
+        <button @click="closeSignaturePad">Cancelar</button>
+      </div>
+    </div>
+  </div>
 </template>
-
 
 <script setup>
 import "quill/dist/quill.snow.css";
 import "quill-mention/dist/quill.mention.css";
-import html2pdf from 'html2pdf.js';
+import html2pdf from "html2pdf.js";
+import SignaturePad from 'signature_pad';
 
 const editor = ref(null);
+const showSignaturePad = ref(false);
+const signaturePadCanvas = ref(null);
 let quill;
+let signaturePad;
+let signatureImage = null;
 
+// Função para carregar o modelo
 const loadTemplate = () => {
   // Limpar o conteúdo atual do editor
   quill.setContents([]);
@@ -61,15 +79,14 @@ function mentionSource(searchTerm, renderList, mentionChar) {
   }
 }
 
+// Função para exportar o conteúdo para PDF
 const exportToPDF = () => {
   // Obter o conteúdo do editor
   const editorContent = quill.root;
-
   // Clonar o conteúdo para evitar alterações no editor
   const contentClone = editorContent.cloneNode(true);
-
   // Injetar estilos necessários
-  const style = document.createElement('style');
+  const style = document.createElement("style");
   style.textContent = `
     .non-editable {
       background-color: #f0f0f0;
@@ -82,18 +99,65 @@ const exportToPDF = () => {
   `;
   contentClone.prepend(style);
 
-  // Configurações para o html2pdf
   const opt = {
-    margin: [0.5, 0.5, 0.5, 0.5], // Margens em polegadas (topo, esquerda, base, direita)
-    filename: 'documento.pdf',
-    image: { type: 'jpeg', quality: 0.98 },
+    margin: [0.5, 0.5, 0.5, 0.5],
+    filename: "documento.pdf",
+    image: { type: "jpeg", quality: 0.98 },
     html2canvas: { scale: 2, logging: false },
-    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
+    jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
   };
 
   // Converter o conteúdo em PDF
   html2pdf().set(opt).from(contentClone).save();
 };
+
+// Funções relacionadas ao SignaturePad
+const initializeSignaturePad = async () => {
+  await nextTick(); // Garante que o DOM foi atualizado
+  const canvas = signaturePadCanvas.value;
+  if (canvas) {
+    // Ajustar o tamanho do canvas conforme necessário
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+
+    signaturePad = new SignaturePad(canvas);
+  } else {
+    console.error('Canvas do SignaturePad não está disponível.');
+  }
+};
+
+const saveSignature = () => {
+  if (signaturePad.isEmpty()) {
+    alert('Por favor, forneça uma assinatura primeiro.');
+    return;
+  }
+  signatureImage = signaturePad.toDataURL();
+  showSignaturePad.value = false;
+
+  if (signatureImage) {
+    // Inserir a assinatura no editor
+    const range = quill.getSelection(true);
+    quill.insertEmbed(range.index, 'image', signatureImage, 'user');
+    quill.insertText(range.index + 1, '\n', 'user');
+  }
+};
+
+const clearSignature = () => {
+  if (signaturePad) {
+    signaturePad.clear();
+  }
+};
+
+const closeSignaturePad = () => {
+  showSignaturePad.value = false;
+};
+
+// Observador para inicializar o SignaturePad quando o modal for exibido
+watch(showSignaturePad, (newValue) => {
+  if (newValue) {
+    initializeSignaturePad();
+  }
+});
 
 onMounted(async () => {
   const { $Quill } = useNuxtApp();
@@ -128,23 +192,19 @@ onMounted(async () => {
     modules: {
       toolbar: {
         container: [
-          ["bold", "italic", "underline", "strike"], // toggled buttons
+          ["bold", "italic", "underline", "strike"],
           ["blockquote", "code-block"],
           ["link", "image", "video", "formula"],
-
-          [{ header: 1 }, { header: 2 }], // custom button values
+          [{ header: 1 }, { header: 2 }],
           [{ list: "ordered" }, { list: "bullet" }, { list: "check" }],
-          [{ script: "sub" }, { script: "super" }], // superscript/subscript
-          [{ indent: "-1" }, { indent: "+1" }], // outdent/indent
-          [{ direction: "rtl" }], // text direction
-
-          [{ size: ["small", false, "large", "huge"] }], // custom dropdown
+          [{ script: "sub" }, { script: "super" }],
+          [{ indent: "-1" }, { indent: "+1" }],
+          [{ direction: "rtl" }],
+          [{ size: ["small", false, "large", "huge"] }],
           [{ header: [1, 2, 3, 4, 5, 6, false] }],
-
-          [{ color: [] }, { background: [] }], // dropdown with defaults from theme
+          [{ color: [] }, { background: [] }],
           [{ font: [] }],
           [{ align: [] }],
-
           ["clean"],
         ],
         handlers: {
@@ -197,3 +257,41 @@ onMounted(async () => {
   });
 });
 </script>
+
+<style>
+.signature-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.signature-container {
+  position: relative;
+  background-color: #fff;
+  margin: 5% auto;
+  padding: 20px;
+  width: 600px;
+  max-width: 90%;
+  border-radius: 8px;
+}
+
+.signature-container canvas {
+  border: 1px solid #ccc;
+  width: 100%;
+  height: 200px; /* Ajuste conforme necessário */
+}
+
+.signature-buttons {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.signature-buttons button {
+  flex: 1;
+  margin: 0 5px;
+}
+</style>
