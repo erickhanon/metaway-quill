@@ -4,6 +4,10 @@
     <button @click="showSignaturePad = true">Assinar Documento</button>
     <button @click="exportToPDF">Baixar PDF</button>
     <button @click="clearSavedContent">Limpar Conteúdo</button>
+    <button @click="saveContentAsHTML">Salvar Conteúdo em HTML</button>
+    <button @click="loadContentFromHTML">Carregar Conteúdo Salvo</button>
+    <input type="file" @change="handleFileUpload" accept="application/pdf" />
+    <button @click="extractPdfContent" :disabled="!selectedFile">Extrair Conteúdo do PDF</button>
     <div ref="editor"></div>
     <div class="last-saved-message">
       <p v-if="lastSavedTime">
@@ -30,11 +34,16 @@ import "quill-mention/dist/quill.mention.css";
 import html2pdf from "html2pdf.js";
 import SignaturePad from "signature_pad";
 import { debounce } from "lodash";
+import * as pdfjsLib from 'pdfjs-dist';
+import { ref, onMounted, nextTick, computed, watch } from 'vue';
 
 const editor = ref(null);
 const showSignaturePad = ref(false);
 const signaturePadCanvas = ref(null);
 const lastSavedTime = ref(null);
+const selectedFile = ref(null);
+const extractedText = ref('');
+const error = ref('');
 let quill;
 let signaturePad;
 let signatureImage = null;
@@ -54,6 +63,24 @@ const loadTemplate = () => {
   quill.insertEmbed(quill.getLength(), "nonEditable", "Atenciosamente,\n");
   quill.insertEmbed(quill.getLength(), "nonEditable", "Direção da Escola");
   quill.setSelection(quill.getLength() - 1);
+};
+
+// Função para salvar o conteúdo em HTML no localStorage
+const saveContentAsHTML = () => {
+  const htmlContent = quill.root.innerHTML;
+  localStorage.setItem("editorHTMLContent", htmlContent);
+  alert("Conteúdo salvo com sucesso!");
+};
+
+// Função para carregar o conteúdo salvo em HTML no editor
+const loadContentFromHTML = () => {
+  const savedHTMLContent = localStorage.getItem("editorHTMLContent");
+  if (savedHTMLContent) {
+    quill.root.innerHTML = savedHTMLContent;
+    alert("Conteúdo carregado com sucesso!");
+  } else {
+    alert("Nenhum conteúdo salvo encontrado.");
+  }
 };
 
 // Função para criar as menções
@@ -133,6 +160,7 @@ const saveContentDebounced = debounce(saveContent, 1000);
 const clearSavedContent = () => {
   localStorage.removeItem("editorContent");
   localStorage.removeItem("lastSavedTime");
+  localStorage.removeItem("editorHTMLContent");
   quill.setContents([]);
   lastSavedTime.value = null;
 };
@@ -200,6 +228,47 @@ watch(showSignaturePad, (newValue) => {
     initializeSignaturePad();
   }
 });
+
+// Funções relacionadas ao PDF Text Extractor
+const handleFileUpload = (event) => {
+  selectedFile.value = event.target.files[0];
+  extractedText.value = '';
+  error.value = '';
+};
+
+const extractPdfContent = async () => {
+  if (!selectedFile.value) {
+    error.value = 'Por favor, selecione um arquivo PDF primeiro.';
+    return;
+  }
+
+  try {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const typedarray = new Uint8Array(e.target.result);
+      const pdf = await pdfjsLib.getDocument(typedarray).promise;
+      let fullText = '';
+      const div = document.createElement("div");
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        const pageDiv = document.createElement("div");
+        pageDiv.innerText = pageText;
+        div.appendChild(pageDiv);
+        fullText += pageText + '\n\n';
+      }
+
+      extractedText.value = fullText.trim();
+      quill.clipboard.dangerouslyPasteHTML(div.innerHTML);
+    };
+    reader.readAsArrayBuffer(selectedFile.value);
+  } catch (err) {
+    error.value = 'Ocorreu um erro durante a extração. Por favor, tente novamente.';
+    console.error('Erro ao extrair conteúdo do PDF:', err);
+  }
+};
 
 onMounted(async () => {
   const { $Quill } = useNuxtApp();
@@ -318,8 +387,11 @@ onMounted(async () => {
   } else {
     lastSavedTime.value = null;
   }
-});
 
+  // Inicializar PDF.js
+  const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+});
 </script>
 
 <style>
@@ -357,5 +429,28 @@ onMounted(async () => {
 .signature-buttons button {
   flex: 1;
   margin: 0 5px;
+}
+
+input[type="file"] {
+  margin-bottom: 10px;
+}
+
+button {
+  margin-bottom: 20px;
+  padding: 10px 20px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.error {
+  color: red;
+  margin-top: 10px;
 }
 </style>
